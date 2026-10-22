@@ -42,7 +42,7 @@ import {
   ServiceGetStreamableLogsHandler
 } from '../core/service/index.js'
 
-import { streamToObject, streamToString } from '../../utils/util.js'
+import { streamToObject, streamToString, sanitizeLogValue } from '../../utils/util.js'
 import { PROTOCOL_COMMANDS, SERVICES_API_BASE_PATH } from '../../utils/constants.js'
 import { Readable } from 'stream'
 import { HTTP_LOGGER } from '../../utils/logging/common.js'
@@ -79,7 +79,10 @@ computeRoutes.get(`${SERVICES_API_BASE_PATH}/computeEnvironments`, async (req, r
 computeRoutes.post(`${SERVICES_API_BASE_PATH}/compute`, async (req, res) => {
   try {
     HTTP_LOGGER.logMessage(
-      `ComputeStartCommand request received as body params: ${JSON.stringify(req.body)}`,
+      // do not log the raw body: datasets/algorithm file objects carry credentials
+      `ComputeStartCommand request received (consumer: ${sanitizeLogValue(
+        req.body?.consumerAddress ?? 'n/a'
+      )}, environment: ${sanitizeLogValue(req.body?.environment ?? 'n/a')})`,
       true
     )
 
@@ -131,9 +134,10 @@ computeRoutes.post(`${SERVICES_API_BASE_PATH}/compute`, async (req, res) => {
 computeRoutes.post(`${SERVICES_API_BASE_PATH}/freeCompute`, async (req, res) => {
   try {
     HTTP_LOGGER.logMessage(
-      `FreeComputeStartCommand request received as body params: ${JSON.stringify(
-        req.body
-      )}`,
+      // do not log the raw body: datasets/algorithm file objects carry credentials
+      `FreeComputeStartCommand request received (consumer: ${sanitizeLogValue(
+        req.body?.consumerAddress ?? 'n/a'
+      )}, environment: ${sanitizeLogValue(req.body?.environment ?? 'n/a')})`,
       true
     )
     const startComputeTask: FreeComputeStartCommand = {
@@ -213,7 +217,10 @@ computeRoutes.put(`${SERVICES_API_BASE_PATH}/compute`, async (req, res) => {
 computeRoutes.get(`${SERVICES_API_BASE_PATH}/compute`, async (req, res) => {
   try {
     HTTP_LOGGER.logMessage(
-      `ComputeGetStatusCommand request received with query: ${JSON.stringify(req.query)}`,
+      // do not log the raw query: it carries the consumer signature and nonce
+      `ComputeGetStatusCommand request received (consumer: ${sanitizeLogValue(
+        req.query?.consumerAddress ?? 'n/a'
+      )}, jobId: ${sanitizeLogValue(req.query?.jobId ?? 'n/a')})`,
       true
     )
     const statusComputeTask: ComputeGetStatusCommand = {
@@ -248,7 +255,10 @@ computeRoutes.get(`${SERVICES_API_BASE_PATH}/compute`, async (req, res) => {
 computeRoutes.get(`${SERVICES_API_BASE_PATH}/computeResult`, async (req, res) => {
   try {
     HTTP_LOGGER.logMessage(
-      `ComputeGetResultCommand request received with query: ${JSON.stringify(req.query)}`,
+      // do not log the raw query: it carries the consumer signature and nonce
+      `ComputeGetResultCommand request received (consumer: ${sanitizeLogValue(
+        req.query?.consumerAddress ?? 'n/a'
+      )}, jobId: ${sanitizeLogValue(req.query?.jobId ?? 'n/a')})`,
       true
     )
     const resultComputeTask: ComputeGetResultCommand = {
@@ -322,7 +332,10 @@ computeRoutes.get(`${SERVICES_API_BASE_PATH}/computeStreamableLogs`, async (req,
 computeRoutes.post(`${SERVICES_API_BASE_PATH}/initializeCompute`, async (req, res) => {
   try {
     HTTP_LOGGER.logMessage(
-      `POST initializeCompute request received with query: ${JSON.stringify(req.body)}`,
+      // do not log the raw body: datasets/algorithm file objects carry credentials
+      `POST initializeCompute request received (consumer: ${sanitizeLogValue(
+        req.body?.consumerAddress ?? 'n/a'
+      )}, environment: ${sanitizeLogValue(req.body?.environment ?? 'n/a')})`,
       true
     )
     const { body } = req
