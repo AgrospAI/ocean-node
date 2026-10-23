@@ -44,7 +44,8 @@ export async function validateOrderTransaction(
   datatokenAddress: string,
   serviceIndex: number,
   serviceTimeout: number,
-  signer: Signer
+  signer: Signer,
+  payerAddress?: string
 ): Promise<ValidateTransactionResponse> {
   const contractInterface = new Interface(ERC20Template.abi)
   let txReceiptMined = await fetchTransactionReceipt(txId, provider)
@@ -56,6 +57,10 @@ export async function validateOrderTransaction(
       message: errorMsg
     }
   }
+  const erc20Address = txReceiptMined.to
+  const datatokenContract = new Contract(erc20Address, ERC20Template.abi, signer)
+  const erc721Address = await datatokenContract.getERC721Address()
+
   const orderReusedEvent = fetchEventFromTransaction(
     txReceiptMined,
     EVENTS.ORDER_REUSED,
@@ -80,31 +85,28 @@ export async function validateOrderTransaction(
     contractInterface
   )
   let orderEvent
-  for (const event of OrderStartedEvent || []) {
-    const eventDatatokenAddress = event.log.address
-    const userMatches =
-      userAddress?.toLowerCase() === event.args[0]?.toLowerCase() ||
-      userAddress?.toLowerCase() === event.args[1]?.toLowerCase()
-    const datatokenMatches =
-      eventDatatokenAddress?.toLowerCase() === datatokenAddress?.toLowerCase()
-
-    if (!userMatches || !datatokenMatches) continue
-
-    try {
-      const datatokenContract = new Contract(
-        eventDatatokenAddress,
-        ERC20Template.abi,
-        signer
-      )
-      const erc721Address = await datatokenContract.getERC721Address()
-      if (erc721Address?.toLowerCase() !== dataNftAddress?.toLowerCase()) continue
-
+  for (const event of OrderStartedEvent) {
+    // event.args[0] = consumer, event.args[1] = payer (ERC20Template OrderStarted).
+    // When payerAddress is provided (compute path) we bind positions explicitly:
+    // consumer must be userAddress AND payer must be payerAddress. Without it
+    // (download path) we keep the original position-agnostic OR so the caller can be
+    // either the consumer or the payer.
+    // Use `!== undefined` (not truthiness): an empty-string payerAddress must still take
+    // the strict AND branch (where it can never match a real payer) rather than fall back
+    // to the permissive OR — fail-closed.
+    const addressMatch =
+      payerAddress !== undefined
+        ? userAddress?.toLowerCase() === event.args[0]?.toLowerCase() &&
+          payerAddress?.toLowerCase() === event.args[1]?.toLowerCase()
+        : userAddress?.toLowerCase() === event.args[0]?.toLowerCase() ||
+          userAddress?.toLowerCase() === event.args[1]?.toLowerCase()
+    if (
+      addressMatch &&
+      erc20Address?.toLowerCase() === datatokenAddress?.toLowerCase() &&
+      erc721Address?.toLowerCase() === dataNftAddress?.toLowerCase()
+    ) {
       orderEvent = event
       break
-    } catch (error) {
-      CORE_LOGGER.logMessage(
-        `Could not validate datatoken ${eventDatatokenAddress}: ${error}`
-      )
     }
   }
 
