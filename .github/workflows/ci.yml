@@ -200,6 +200,64 @@ jobs:
           name: coverage
           path: coverage/
 
+  test_compute_integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+      - name: Cache node_modules
+        uses: actions/cache@v6
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-test-compute-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-test-compute-${{ env.cache-name }}-
+      - name: Set ADDRESS_FILE
+        run: echo "ADDRESS_FILE=${HOME}/.ocean/ocean-contracts/artifacts/address.json" >> $GITHUB_ENV
+      - name: Checkout Barge
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          repository: 'oceanprotocol/barge'
+          path: 'barge'
+      - name: Run Barge
+        working-directory: ${{ github.workspace }}/barge
+        run: |
+          bash -x start_ocean.sh --no-node --with-typesense 2>&1 > start_ocean.log &
+      - run: npm ci
+      - run: npm run build
+      - name: Delete default runner images
+        run: |
+          rm -rf /usr/share/swift/
+      - name: Wait for contracts deployment
+        working-directory: ${{ github.workspace }}/barge
+        run: |
+          for i in $(seq 1 250); do
+            sleep 5
+            [ -f "$HOME/.ocean/ocean-contracts/artifacts/ready" ] && break
+            done
+          test -f "$HOME/.ocean/ocean-contracts/artifacts/address.json"
+      - name: docker logs (barge startup)
+        run: docker logs ocean-ocean-contracts-1 && docker logs ocean-typesense-1
+        if: ${{ failure() }}
+      - name: compute integration tests
+        run: npm run test:computeintegration 2>&1 | tee compute-integration.log
+      - name: docker logs (test run)
+        run: docker logs ocean-ocean-contracts-1 && docker logs ocean-typesense-1
+        if: ${{ failure() }}
+      - name: upload compute integration log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: compute-integration-log
+          path: compute-integration.log
+
   test_system:
     runs-on: ubuntu-latest
 
