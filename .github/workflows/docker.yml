@@ -17,9 +17,16 @@ env:
   DOCKERHUB_IMAGE: oceanenterprise/oe-node
 
 jobs:
+  # Image publishing belongs to the repo that owns the release pipeline and its
+  # registry credentials (secrets.DOCKERHUB_*, secrets.GHCR_PUSH_TOKEN). This
+  # repository (AgrospAI/ocean-node) mirrors enterprise history plus upstream
+  # cherry-picks and holds the same enterprise tags, so without this guard every
+  # tag push here would launch a build that cannot log in anywhere. The other
+  # jobs `needs` this one, so skipping it skips the whole workflow.
   meta:
     name: Determine version
     runs-on: ubuntu-latest
+    if: github.repository == 'OceanProtocolEnterprise/ocean-node'
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
