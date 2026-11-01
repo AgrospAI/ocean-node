@@ -43,7 +43,10 @@ function buildOrderStartedLog(consumer: string, payer: string): any {
     PUBLISH_MARKET,
     7n // blockNumber
   ])
-  return { topics: [...encoded.topics], data: encoded.data }
+  // a real receipt log always carries the emitting contract's address; our validator reads
+  // it per event (a receipt can hold logs from more than one datatoken) instead of
+  // trusting receipt.to, so the mock must provide it
+  return { address: ERC20_ADDR, topics: [...encoded.topics], data: encoded.data }
 }
 
 // Fake ethers runner (works as both provider and signer runner): answers the two read
@@ -160,7 +163,7 @@ describe('validateOrderTransaction - OrderReused path (compute payer binding)', 
       BigInt(Math.floor(Date.now() / 1000)),
       8n
     ])
-    return { topics: [...encoded.topics], data: encoded.data }
+    return { address: ERC20_ADDR, topics: [...encoded.topics], data: encoded.data }
   }
 
   function runReused(
