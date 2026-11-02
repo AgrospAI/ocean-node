@@ -20,12 +20,12 @@ follow-up commit, `reconcile: …`, which this document describes.
 
 ```
 35b864f6  chore: v4.2.2                       <- enterprise main, untouched
-7270aa4e  security updates (#1495)            \
-b24a1260  bind C2D algorithm container…(#1527) \  phase 1: upstream commits, verbatim
-2b0957ad  fix logging leak (#1528)             | (conflicts resolved to the *upstream* side,
-699ad80a  orphane jobs (#1472)                 |  never to enterprise behaviour)
-e11d5da2  Fix: paid/free compute accepts…(#1531)|
-40c9407f  Isolate C2D inputs per index…(#1534) /
+4520cf28  security updates (#1495)            \
+d00843e9  bind C2D algorithm container…(#1527) \  phase 1: upstream commits, verbatim
+fb65753c  fix logging leak (#1528)             | (conflicts resolved to the *upstream* side,
+b483521d  orphane jobs (#1472)                 |  never to enterprise behaviour)
+eaf1b197  Fix: paid/free compute accepts…(#1531)|
+6fa6b667  Isolate C2D inputs per index…(#1534) /
 <this>    reconcile: …                      <- phase 2: the only new code
 ```
 
