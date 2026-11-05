@@ -47,7 +47,8 @@ import {
   appendFileSync,
   statSync,
   statfsSync,
-  createReadStream
+  createReadStream,
+  symlinkSync
 } from 'fs'
 import { pipeline } from 'node:stream/promises'
 import { CORE_LOGGER } from '../../utils/logging/common.js'
@@ -5496,6 +5497,27 @@ export class C2DEngineDocker extends C2DEngine {
           return {
             status: C2DStatusNumber.DataProvisioningFailed,
             statusText: C2DStatusText.DataProvisioningFailed
+          }
+        }
+        // Backwards compatibility for algorithm images built for Ocean Provider
+        // that resolved inputs as /data/inputs/<did>. The relative symlink is archived as-is by the tar
+        // upload below and resolves inside the container's /data volume.
+        if (asset.documentId) {
+          const didName = path.basename(asset.documentId)
+          if (didName && didName !== '.' && didName !== '..') {
+            const legacyInputPath = path.join(jobFolderPath, 'data/inputs', didName)
+            try {
+              symlinkSync(i, legacyInputPath, 'dir')
+            } catch (e) {
+              // EEXIST: the same DID is used by more than one input; the first
+              // index wins and every entry exposes the same dataset content
+              if (e.code !== 'EEXIST') {
+                appendFileSync(
+                  configLogPath,
+                  `Could not create legacy input link for ${asset.documentId}: ${e.message}\n`
+                )
+              }
+            }
           }
         }
       } else {
