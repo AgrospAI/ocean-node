@@ -25,6 +25,40 @@ export type ElasticsearchSchemas = {
   escrowSchema: ElasticsearchSchema
 }
 
+// The marketplace filters the catalogue with un-nested `term` queries on paths such as
+// `credentialSubject.services.serviceEndpoint.keyword`. `@oceanprotocol/ddo-js` ships
+// `services` as `nested` (v5 under credentialSubject, v4 at the top level), which is
+// invisible to root-level queries, and exposes `serviceEndpoint` as a plain `keyword`
+// field, which has no `.keyword` sub-field. Rewrite both so fresh indices match what
+// the marketplace sends. Existing indices keep their old mapping - `nested` <-> `object`
+// cannot be changed with putMapping, so they must be deleted and reindexed.
+function patchServicesForMarketplace(
+  schemas: ElasticsearchSchema[]
+): ElasticsearchSchema[] {
+  const patched = structuredClone(schemas)
+  for (const schema of patched) {
+    const properties = schema.body?.mappings?.properties
+    if (!properties) continue
+
+    // v5 stores services under credentialSubject; v4 keeps them at the top level.
+    const services =
+      properties.credentialSubject?.properties?.services ?? properties.services
+    if (!services) continue
+
+    if (services.type === 'nested') {
+      services.type = 'object'
+    }
+
+    if (services.properties?.serviceEndpoint) {
+      services.properties.serviceEndpoint = {
+        type: 'text',
+        fields: { keyword: { type: 'keyword', ignore_above: 256 } }
+      }
+    }
+  }
+  return patched
+}
+
 // "op_ddo_short" is a node-side index for deprecated DDOs (state !== 0).
 // Not part of the DDO spec, so it stays here rather than in @oceanprotocol/ddo-js.
 const ddoShortSchema: ElasticsearchSchema = {
@@ -53,7 +87,10 @@ const ddoShortSchema: ElasticsearchSchema = {
 }
 
 export const elasticSchemas: ElasticsearchSchemas = {
-  ddoSchemas: [...(ddoElasticMappings as ElasticsearchSchema[]), ddoShortSchema],
+  ddoSchemas: [
+    ...patchServicesForMarketplace(ddoElasticMappings as ElasticsearchSchema[]),
+    ddoShortSchema
+  ],
   nonceSchemas: {
     index: 'nonce',
     body: {
