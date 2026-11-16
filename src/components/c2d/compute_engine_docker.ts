@@ -23,6 +23,7 @@ import type {
   ComputeResource,
   ComputeResourceKind,
   C2DEnvironmentConfig,
+  C2DEmulationConfig,
   ComputeResourcesPricingInfo,
   EnvironmentResourceRef,
   ContainerMetricsSnapshot
@@ -135,6 +136,9 @@ const SERVICE_DEFAULT_PIDS_LIMIT = 512
 
 export class C2DEngineDocker extends C2DEngine {
   private envs: ComputeEnvironment[] = []
+  // CPU platform reported by the Docker daemon, as seen at engine start. Used to
+  // decide whether an image needs to be pulled for emulation.
+  private hostPlatform?: RunningPlatform
 
   public docker: Dockerode
   private cronTimer: any
@@ -511,6 +515,7 @@ export class C2DEngineDocker extends C2DEngine {
       architecture: sysinfo.Architecture,
       os: sysinfo.OSType
     }
+    this.hostPlatform = platform
     const consumerAddress = this.getKeyManager().getEthAddress()
 
     // Say once, per engine, whether runtime-metrics sampling is on and how often: "no stats on
@@ -1464,26 +1469,27 @@ export class C2DEngineDocker extends C2DEngine {
     encryptedDockerRegistryAuth?: string,
     platform?: RunningPlatform
   ): Promise<ValidateParams> {
+    const emulation = this.getEmulationConfig()
     // Step 1: Try to check local image first
     if (this.docker) {
       try {
         const dockerImage = this.docker.getImage(image)
         const imageInfo = await dockerImage.inspect()
 
-        // Extract platform information from local image
+        // Extract platform information from local image. Normalize the architecture
+        // because Docker reports "amd64"/"arm64" in manifests and "x86_64"/"aarch64"
+        // from docker.info() depending on the host.
         const localPlatform = {
-          architecture: imageInfo.Architecture || 'amd64',
+          architecture: normalizeArchitecture(imageInfo.Architecture || 'amd64'),
           os: imageInfo.Os || 'linux'
-        }
-
-        // Normalize architecture (amd64 -> x86_64 for compatibility)
-        if (localPlatform.architecture === 'amd64') {
-          localPlatform.architecture = 'x86_64'
         }
 
         // Validate platform if required
         const isValidPlatform = platform
-          ? checkManifestPlatform(localPlatform, platform)
+          ? checkManifestPlatform(localPlatform, platform, {
+              allowEmulation: emulation.enabled,
+              emulationPlatforms: emulation.platforms
+            })
           : true
 
         if (isValidPlatform) {
@@ -1520,7 +1526,10 @@ export class C2DEngineDocker extends C2DEngine {
         : [manifest.platform]
 
       const isValidPlatform = platforms.some((entry: any) =>
-        checkManifestPlatform(entry, platform)
+        checkManifestPlatform(entry, platform, {
+          allowEmulation: emulation.enabled,
+          emulationPlatforms: emulation.platforms
+        })
       )
 
       return { valid: isValidPlatform }
@@ -3496,6 +3505,71 @@ export class C2DEngineDocker extends C2DEngine {
     }
   }
 
+  private getEmulationConfig(): { enabled: boolean; platforms: string[] } {
+    const emulation: C2DEmulationConfig | undefined =
+      this.getC2DConfig().connection?.emulation
+    const configured = (emulation?.platforms ?? [])
+      .map((platform) => (typeof platform === 'string' ? platform.trim() : ''))
+      .filter((platform) => platform.length > 0)
+    return {
+      enabled: emulation?.enabled !== false,
+      platforms: configured.length > 0 ? configured : DEFAULT_EMULATION_PLATFORMS
+    }
+  }
+
+  private getHostPlatform(): RunningPlatform | undefined {
+    return this.hostPlatform ?? this.envs.find((env) => env.platform)?.platform
+  }
+
+  /**
+   * Returns the `platform` Docker should pull when the image has no variant for
+   * the host CPU but a configured emulation platform is available. Returns
+   * undefined for native images (normal pull), and on any lookup error so a
+   * manifest/registry problem never blocks the regular pull path.
+   */
+  private async resolveEmulatedPullPlatform(
+    image: string,
+    encryptedDockerRegistryAuth?: string
+  ): Promise<string | undefined> {
+    const emulation = this.getEmulationConfig()
+    if (!emulation.enabled) return undefined
+
+    const hostPlatform = this.getHostPlatform()
+    if (!hostPlatform) return undefined
+    const hostArchitecture = normalizeArchitecture(hostPlatform.architecture)
+    const hasEmulationTarget = emulation.platforms.some(
+      (platform) => normalizePlatform(platform).architecture !== hostArchitecture
+    )
+    if (!hasEmulationTarget) return undefined
+
+    try {
+      const manifest = await this.getDockerManifest(image, encryptedDockerRegistryAuth)
+      const platforms: any[] = Array.isArray(manifest?.manifests)
+        ? manifest.manifests.map((entry: any) => entry?.platform).filter(Boolean)
+        : [manifest?.platform].filter(Boolean)
+      // No platform metadata: let Docker use its default behaviour.
+      if (platforms.length === 0) return undefined
+      // Native variant available: no emulation needed.
+      if (platforms.some((entry) => checkManifestPlatform(entry, hostPlatform))) {
+        return undefined
+      }
+      const emulated = pickEmulatedPlatform(platforms, hostPlatform, emulation.platforms)
+      const dockerPlatform = emulated ? toDockerPlatform(emulated) : undefined
+      if (!dockerPlatform) return undefined
+      CORE_LOGGER.warn(
+        `Image ${image} has no ${hostPlatform.os || 'linux'}/${hostPlatform.architecture} ` +
+          `variant; pulling ${dockerPlatform} for emulation. Set ` +
+          `"emulation": { "enabled": false } in DOCKER_COMPUTE_ENVIRONMENTS to disable this fallback.`
+      )
+      return dockerPlatform
+    } catch (err: any) {
+      CORE_LOGGER.debug(
+        `Could not resolve a platform for ${image}, using Docker default: ${err.message}`
+      )
+      return undefined
+    }
+  }
+
   private async pullImage(originaljob: DBComputeJob) {
     const job = JSON.parse(JSON.stringify(originaljob)) as DBComputeJob
     const imageLogFile = this.getStoragePath() + '/' + job.jobId + '/data/logs/image.log'
@@ -3543,6 +3617,20 @@ export class C2DEngineDocker extends C2DEngine {
         }
         CORE_LOGGER.debug(
           `Using docker registry auth for ${registry} to pull image ${job.containerImage}`
+        )
+      }
+
+      // If the image has no variant for this host's CPU architecture, ask Docker
+      // for a configured emulation platform (e.g. linux/amd64 on an arm64 host).
+      const emulatedPlatform = await this.resolveEmulatedPullPlatform(
+        job.containerImage,
+        originaljob.encryptedDockerRegistryAuth
+      )
+      if (emulatedPlatform) {
+        pullOptions.platform = emulatedPlatform
+        appendFileSync(
+          imageLogFile,
+          `Image has no native variant; emulating ${emulatedPlatform}\n`
         )
       }
 
@@ -3798,6 +3886,21 @@ export class C2DEngineDocker extends C2DEngine {
                 password: dockerRegistryAuthForPull.password
               })
         }
+      }
+
+      // Same emulation fallback as pullImage(): service images follow the node's
+      // CPU architecture rules too.
+      const emulatedPlatform = await this.resolveEmulatedPullPlatform(
+        imageRef,
+        encryptedDockerRegistryAuth
+      )
+      if (emulatedPlatform) {
+        pullOptions.platform = emulatedPlatform
+        if (logFile)
+          appendFileSync(
+            logFile,
+            `Image has no native variant; emulating ${emulatedPlatform}\n`
+          )
       }
 
       const pullStream = await this.docker.pull(imageRef, pullOptions)
@@ -5935,18 +6038,145 @@ export function getAlgorithmImage(algorithm: ComputeAlgorithm, jobId: string): s
   return image
 }
 
+// ---------------------------------------------------------------------------
+// CPU architecture / platform emulation
+// ---------------------------------------------------------------------------
+
+/**
+ * Platforms used as emulation fallback when an image has no variant for the
+ * host CPU. Most published algorithm images target linux/amd64, so that is the
+ * default; operators can override it per Docker connection (see
+ * C2DEmulationConfig / docs/compute.md).
+ */
+export const DEFAULT_EMULATION_PLATFORMS = ['linux/amd64']
+
+// Docker reports the same CPU architecture under different names: docker.info()
+// says "aarch64" on Linux arm64 (and on Docker Desktop) while image manifests use
+// "arm64"; likewise "x86_64" vs "amd64". Compare on a canonical value.
+const ARCHITECTURE_ALIASES: Record<string, string> = {
+  amd64: 'x86_64',
+  x86_64: 'x86_64',
+  x64: 'x86_64',
+  arm64: 'aarch64',
+  aarch64: 'aarch64',
+  arm64v8: 'aarch64',
+  armv8: 'aarch64'
+}
+
+export function normalizeArchitecture(architecture?: string): string | undefined {
+  if (!architecture) return architecture
+  return ARCHITECTURE_ALIASES[architecture.toLowerCase()] ?? architecture.toLowerCase()
+}
+
+interface NormalizedPlatform {
+  architecture?: string
+  os: string
+  variant?: string
+}
+
+function parsePlatformString(platform: string): {
+  os?: string
+  architecture?: string
+  variant?: string
+} {
+  const [os, architecture, variant] = platform.trim().split('/')
+  return { os, architecture, variant }
+}
+
+function normalizePlatform(platform: any): NormalizedPlatform {
+  const raw: any =
+    typeof platform === 'string' ? parsePlatformString(platform) : platform || {}
+  return {
+    architecture: normalizeArchitecture(raw.architecture),
+    os: (raw.os || 'linux').toLowerCase(),
+    variant: raw.variant
+  }
+}
+
+/** Converts an OCI platform back to the `os/arch[/variant]` form docker pull expects. */
+export function toDockerPlatform(platform: any): string | undefined {
+  const normalized = normalizePlatform(platform)
+  if (!normalized.architecture) return undefined
+  const architecture =
+    normalized.architecture === 'x86_64'
+      ? 'amd64'
+      : normalized.architecture === 'aarch64'
+        ? 'arm64'
+        : normalized.architecture
+  return `${normalized.os}/${architecture}${
+    normalized.variant ? `/${normalized.variant}` : ''
+  }`
+}
+
+/**
+ * True when `manifestPlatform` is a different CPU architecture than the host but
+ * is explicitly allowed as an emulation target (e.g. linux/amd64 on arm64).
+ */
+export function isEmulatablePlatform(
+  manifestPlatform: any,
+  envPlatform: RunningPlatform,
+  allowedPlatforms: string[] = DEFAULT_EMULATION_PLATFORMS
+): boolean {
+  const manifest = normalizePlatform(manifestPlatform)
+  const env = normalizePlatform(envPlatform)
+  if (!manifest.architecture || !env.architecture) return false
+  if (manifest.os !== env.os) return false
+  if (manifest.architecture === env.architecture) return false
+  return allowedPlatforms.some((allowed) => {
+    const target = normalizePlatform(allowed)
+    return target.os === manifest.os && target.architecture === manifest.architecture
+  })
+}
+
+/**
+ * Picks the manifest platform to emulate, honouring the configured preference
+ * order. Returns undefined when the image has a native variant or none of the
+ * allowed emulation platforms is present.
+ */
+export function pickEmulatedPlatform(
+  manifestPlatforms: any[],
+  envPlatform: RunningPlatform,
+  allowedPlatforms: string[] = DEFAULT_EMULATION_PLATFORMS
+): RunningPlatform | undefined {
+  if (!Array.isArray(manifestPlatforms) || !envPlatform) return undefined
+  const envArchitecture = normalizeArchitecture(envPlatform.architecture)
+  const envOs = normalizePlatform(envPlatform).os
+  // A native variant always wins; emulation is only a last resort.
+  const hasNativeVariant = manifestPlatforms.some((entry) => {
+    const candidate = normalizePlatform(entry)
+    return candidate.architecture === envArchitecture && candidate.os === envOs
+  })
+  if (hasNativeVariant) return undefined
+  for (const allowed of allowedPlatforms) {
+    const target = normalizePlatform(allowed)
+    if (!target.architecture || target.architecture === envArchitecture) continue
+    const match = manifestPlatforms.find((entry) => {
+      const candidate = normalizePlatform(entry)
+      return (
+        candidate.os === target.os &&
+        candidate.architecture === target.architecture &&
+        isEmulatablePlatform(entry, envPlatform, allowedPlatforms)
+      )
+    })
+    if (match) return match
+  }
+  return undefined
+}
+
 export function checkManifestPlatform(
   manifestPlatform: any,
-  envPlatform?: RunningPlatform
+  envPlatform?: RunningPlatform,
+  options?: { allowEmulation?: boolean; emulationPlatforms?: string[] }
 ): boolean {
   if (!manifestPlatform || !envPlatform) return true // skips if not present
-  if (envPlatform.architecture === 'amd64') envPlatform.architecture = 'x86_64' // x86_64 is compatible with amd64
-  if (manifestPlatform.architecture === 'amd64') manifestPlatform.architecture = 'x86_64' // x86_64 is compatible with amd64
 
-  if (
-    envPlatform.architecture !== manifestPlatform.architecture ||
-    envPlatform.os !== manifestPlatform.os
+  const manifest = normalizePlatform(manifestPlatform)
+  const env = normalizePlatform(envPlatform)
+  if (manifest.architecture === env.architecture && manifest.os === env.os) {
+    return true
+  }
+  return (
+    options?.allowEmulation === true &&
+    isEmulatablePlatform(manifestPlatform, envPlatform, options.emulationPlatforms)
   )
-    return false
-  return true
 }

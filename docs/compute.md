@@ -71,7 +71,7 @@ available fields.
 
 ```
 DOCKER_COMPUTE_ENVIRONMENTS
-└── [ Docker connection ]          ← socketPath, resources[], environments[]
+└── [ Docker connection ]          ← socketPath, resources[], environments[], emulation
     ├── resources[]                ← full hardware definitions (CPU, RAM, disk, GPU, …)
     │   ├── { id: "cpu",  total: 6 }          (optional: caps auto-detected value)
     │   ├── { id: "ram",  total: 28 }          (optional: caps auto-detected value)
@@ -90,6 +90,48 @@ DOCKER_COMPUTE_ENVIRONMENTS
 in the connection-level `resources` array. Include them only to cap the detected value (e.g.
 limit an 8-core host to 6 cores for compute). Custom hardware (GPUs, NICs) must always be
 declared.
+
+---
+
+## CPU architecture and emulation
+
+Ocean Node runs an algorithm image only when its manifest provides a variant for the host
+CPU architecture reported by the Docker daemon. Architecture aliases are treated as the same
+platform (`amd64` ≡ `x86_64`, `arm64` ≡ `aarch64`), because Docker uses the first spelling in
+image manifests and the second in `docker info` on some platforms.
+
+On a non-amd64 host — Apple Silicon macOS, or an arm64 server such as an NVIDIA DGX Spark —
+most published algorithm images (`linux/amd64`) have no native variant. The node can pull
+such an image for another platform and let the Docker runtime emulate it. The fallback only
+applies when **no native variant exists**; it is enabled by default:
+
+```json
+{
+  "socketPath": "/var/run/docker.sock",
+  "emulation": {
+    "enabled": true,
+    "platforms": ["linux/amd64"]
+  },
+  "environments": [ ... ]
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Set to `false` to reject non-native images during validation, as older nodes did. |
+| `platforms` | `["linux/amd64"]` | Docker/OCI platforms tried, in order, when the image has no host variant. |
+
+Emulation still depends on the host runtime:
+
+- **Docker Desktop (macOS/Windows)**: amd64 containers run under emulation out of the box
+  (Rosetta or QEMU, depending on the Docker Desktop settings).
+- **Linux arm64 (e.g. DGX Spark)**: register the target architecture with binfmt first, e.g.
+  `docker run --privileged --rm tonistiigi/binfmt --install amd64`. Without it the pull
+  succeeds but the container fails to start with `exec format error`.
+
+The detection reads the image's manifest list/index. Images pinned to a *single-architecture
+manifest* (no platform metadata) are pulled with Docker's default behaviour, so publish with
+`docker buildx build --platform linux/amd64,linux/arm64 --push` to expose every variant.
 
 ---
 

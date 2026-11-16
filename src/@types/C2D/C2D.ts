@@ -228,6 +228,21 @@ export interface C2DEnvironmentConfig {
   features?: ComputeEnvFeatures // config-time, optional
 }
 
+export interface C2DEmulationConfig {
+  /**
+   * Allow pulling/running an image whose manifest has no variant matching the
+   * host CPU by using another platform under emulation. Default: true.
+   * Set to false to keep the previous behaviour (reject non-native images).
+   */
+  enabled?: boolean
+  /**
+   * Docker/OCI platforms that may be used for emulation, in preference order.
+   * Only consulted when the image has no host-native variant.
+   * Default: ["linux/amd64"].
+   */
+  platforms?: string[]
+}
+
 export interface C2DDockerConfig {
   socketPath: string
   protocol: string
@@ -236,6 +251,7 @@ export interface C2DDockerConfig {
   caPath: string
   certPath: string
   keyPath: string
+  emulation?: C2DEmulationConfig
   imageRetentionDays?: number // Default: 7 days
   imageCleanupInterval?: number // Default: 86400 seconds (24 hours)
   paymentClaimInterval?: number // Default: 3600 seconds (1 hours)
