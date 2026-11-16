@@ -1018,6 +1018,14 @@ export const C2DDockerConfigSchema = z.array(
       paymentClaimInterval: z.number().int().min(60).optional().default(3600),
       scanImages: z.boolean().optional().default(false),
       scanImageDBUpdateInterval: z.number().int().min(3600).optional().default(43200),
+      // CPU platform emulation fallback (e.g. amd64 images on an arm64 host).
+      // See docs/compute.md → "CPU architecture and emulation".
+      emulation: z
+        .object({
+          enabled: z.boolean().optional(),
+          platforms: z.array(z.string()).optional()
+        })
+        .optional(),
       resources: z.array(ComputeResourceSchema).optional(),
       environments: z.array(C2DEnvironmentConfigSchema).min(1),
       serviceOnDemand: ServiceOnDemandConfigSchema.optional()

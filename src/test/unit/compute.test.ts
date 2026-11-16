@@ -21,7 +21,6 @@ import {
   convertStringToArray,
   STRING_SEPARATOR
 } from '../../components/database/sqliteCompute.js'
-import os from 'os'
 import {
   buildEnvOverrideConfig,
   OverrideEnvConfig,
@@ -38,6 +37,10 @@ import {
 } from '../../components/c2d/index.js'
 import {
   checkManifestPlatform,
+  isEmulatablePlatform,
+  normalizeArchitecture,
+  pickEmulatedPlatform,
+  toDockerPlatform,
   C2DEngineDocker
 } from '../../components/c2d/compute_engine_docker.js'
 import { ServiceStatusNumber } from '../../@types/C2D/ServiceOnDemand.js'
@@ -366,26 +369,89 @@ describe('Compute Jobs Database', () => {
   })
 
   it('should check manifest platform against local platform env', () => {
-    const arch = os.machine() // ex: arm
-    const platform = os.platform() // ex: linux
-    const env: RunningPlatform = {
-      architecture: arch,
-      os: platform
-    }
-    const result: boolean = checkManifestPlatform(dockerImageManifest.platform, env)
-    // if all defined and a match its OK
-    if (
-      dockerImageManifest.platform.os === env.os &&
-      dockerImageManifest.platform.architecture === env.architecture
-    ) {
-      expect(result).to.be.equal(true)
-    } else {
-      // oterwise its NOT
-      expect(result).to.be.equal(false)
-    }
+    const armHost: RunningPlatform = { architecture: 'aarch64', os: 'linux' }
+    const amdHost: RunningPlatform = { architecture: 'x86_64', os: 'linux' }
+
+    // Architecture aliases are the same platform: docker.info() says aarch64 /
+    // x86_64 while image manifests say arm64 / amd64.
+    expect(
+      checkManifestPlatform({ architecture: 'arm64', os: 'linux' }, armHost)
+    ).to.be.equal(true)
+    expect(
+      checkManifestPlatform({ architecture: 'amd64', os: 'linux' }, amdHost)
+    ).to.be.equal(true)
+
+    // Different architecture is a mismatch unless emulation is enabled.
+    expect(
+      checkManifestPlatform({ architecture: 'amd64', os: 'linux' }, armHost)
+    ).to.be.equal(false)
+    expect(
+      checkManifestPlatform({ architecture: 'arm64', os: 'linux' }, amdHost)
+    ).to.be.equal(false)
 
     // all good anyway, nothing on the manifest
-    expect(checkManifestPlatform(null, env)).to.be.equal(true)
+    expect(checkManifestPlatform(null, armHost)).to.be.equal(true)
+  })
+
+  describe('CPU platform emulation helpers', () => {
+    const armHost: RunningPlatform = { architecture: 'aarch64', os: 'linux' }
+    const amdHost: RunningPlatform = { architecture: 'x86_64', os: 'linux' }
+    const multiArch = [
+      { architecture: 'amd64', os: 'linux' },
+      { architecture: 'arm64', os: 'linux' }
+    ]
+
+    it('normalizes architecture aliases', () => {
+      expect(normalizeArchitecture('amd64')).to.be.equal('x86_64')
+      expect(normalizeArchitecture('x86_64')).to.be.equal('x86_64')
+      expect(normalizeArchitecture('arm64')).to.be.equal('aarch64')
+      expect(normalizeArchitecture('aarch64')).to.be.equal('aarch64')
+      expect(normalizeArchitecture(undefined)).to.be.equal(undefined)
+    })
+
+    it('accepts an emulated platform only when enabled and allowed', () => {
+      const amdOnly = [{ architecture: 'amd64', os: 'linux' }]
+      expect(isEmulatablePlatform(amdOnly[0], armHost)).to.be.equal(true)
+      expect(isEmulatablePlatform(amdOnly[0], amdHost)).to.be.equal(false)
+      // Not in the allowed emulation list.
+      expect(isEmulatablePlatform(amdOnly[0], armHost, ['linux/arm64'])).to.be.equal(
+        false
+      )
+
+      expect(
+        checkManifestPlatform(amdOnly[0], armHost, { allowEmulation: true })
+      ).to.be.equal(true)
+      expect(
+        checkManifestPlatform(amdOnly[0], armHost, {
+          allowEmulation: true,
+          emulationPlatforms: ['linux/arm64']
+        })
+      ).to.be.equal(false)
+      // Disabled keeps the old behaviour.
+      expect(
+        checkManifestPlatform(amdOnly[0], armHost, { allowEmulation: false })
+      ).to.be.equal(false)
+    })
+
+    it('picks a platform only when the image has no native variant', () => {
+      const amdOnly = [{ architecture: 'amd64', os: 'linux' }]
+      expect(pickEmulatedPlatform(amdOnly, armHost)).to.deep.equal(amdOnly[0])
+      // Native variant exists: no fallback to another architecture.
+      expect(pickEmulatedPlatform(multiArch, armHost)).to.be.equal(undefined)
+      expect(pickEmulatedPlatform(multiArch, amdHost)).to.be.equal(undefined)
+      // No allowed target for this host architecture.
+      expect(pickEmulatedPlatform(amdOnly, amdHost)).to.be.equal(undefined)
+    })
+
+    it('converts back to the platform notation docker pull expects', () => {
+      expect(toDockerPlatform({ architecture: 'amd64', os: 'linux' })).to.be.equal(
+        'linux/amd64'
+      )
+      expect(
+        toDockerPlatform({ architecture: 'aarch64', os: 'linux', variant: 'v8' })
+      ).to.be.equal('linux/arm64/v8')
+      expect(toDockerPlatform('linux/amd64')).to.be.equal('linux/amd64')
+    })
   })
 
   describe('testing checkAndFillMissingResources', function () {
