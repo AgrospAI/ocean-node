@@ -183,7 +183,7 @@ jobs:
           VERSION="${{ needs.meta.outputs.version }}"
           IMAGE="${{ env.DOCKERHUB_IMAGE }}"
 
-          
+
           DIGESTS=$(ls dockerhub-* | sed -e "s|dockerhub-arm64-|${IMAGE}@sha256:|" -e "s|dockerhub-|${IMAGE}@sha256:|" | tr '\n' ' ')
           echo "Digests: $DIGESTS"
 

@@ -14,6 +14,35 @@ import { checkAddressOnAccessListWithSigner } from './accessList.js'
 import { isDefined } from './util.js'
 
 /**
+ * Whether a credentials object contains policy-based (SSI) rules.
+ *
+ * Only address and access-list rules are evaluated by the node itself. Any
+ * other rule type (`verifiableCredential`, `SSIpolicy`) needs the policy
+ * server, which verifies a presentation and therefore a verification session.
+ * Delegating address-only assets to the policy server fails: it has no session
+ * to match, while `checkCredentials()` already covers those rule types.
+ */
+export function requiresPolicyServer(credentials?: CredentialRules): boolean {
+  if (!isDefined(credentials)) return false
+
+  const knownTypes = [
+    CREDENTIALS_TYPES.ADDRESS.toLowerCase(),
+    CREDENTIALS_TYPES.ACCESS_LIST.toLowerCase()
+  ]
+
+  for (const list of [credentials.allow, credentials.deny]) {
+    if (!Array.isArray(list)) continue
+    for (const credential of list) {
+      const type = (credential as { type?: unknown })?.type
+      if (typeof type !== 'string') continue
+      if (!knownTypes.includes(type.toLowerCase())) return true
+    }
+  }
+
+  return false
+}
+
+/**
  * Main credential checking function with blockchain support for accessList checks.
  * The allow/deny rules are evaluated by ddo.js `evaluateCredentials`; the node only
  * resolves rule types that need a chain call (see `resolveCredential`).

@@ -38,11 +38,14 @@ const DDO = {
   nftAddress: NFT_ADDRESS,
   metadata: { created: '', updated: '', type: 'dataset', name: 'x', author: 'x' },
   services: [service('public'), service('restricted')],
-  credentials: { allow: [{ type: 'address', values: ['*'] }] },
+  credentials: { allow: [{ type: 'SSIpolicy', values: [] as string[] }] },
   indexedMetadata: { nft: { state: 0 } }
 }
 
-function buildNode(): any {
+function buildNode(
+  credentials = DDO.credentials,
+  serviceCredentials?: typeof DDO.credentials
+): any {
   const blockchain = {
     isNetworkReady: () => Promise.resolve({ ready: true }),
     getProvider: () => Promise.resolve({}),
@@ -60,7 +63,17 @@ function buildNode(): any {
     }),
     getCoreHandlers: () => ({
       getHandler: () => ({
-        findAndFormatDdo: () => Promise.resolve(structuredClone(DDO))
+        findAndFormatDdo: () =>
+          Promise.resolve(
+            structuredClone({
+              ...DDO,
+              credentials,
+              services: DDO.services.map((entry) => ({
+                ...entry,
+                ...(serviceCredentials ? { credentials: serviceCredentials } : {})
+              }))
+            })
+          )
       })
     }),
     getBlockchain: () => blockchain
@@ -117,6 +130,26 @@ describe('Download handler: policy server sees the downloaded service', () => {
   it('sends the service id when the service is selected by id', async () => {
     await new DownloadHandler(buildNode()).handle(downloadTask('public'))
     expect(checkDownload.firstCall.args[2]).to.equal('public')
+  })
+
+  it('checks address-only credentials locally even with a policy server configured', async () => {
+    const node = buildNode({
+      allow: [{ type: 'address', values: ['0x0000000000000000000000000000000000000001'] }]
+    })
+    const result = await new DownloadHandler(node).handle(downloadTask('public'))
+    expect(result.status.httpStatus).to.equal(403)
+    expect(checkDownload.called).to.equal(false)
+  })
+
+  it('honors service policy denial after asset address credentials allow access', async () => {
+    const node = buildNode(
+      { allow: [{ type: 'address', values: ['*'] }] },
+      { allow: [{ type: 'SSIpolicy', values: [] }] }
+    )
+    const result = await new DownloadHandler(node).handle(downloadTask('restricted'))
+    expect(result.status.httpStatus).to.equal(403)
+    expect(checkDownload.calledOnce).to.equal(true)
+    expect(checkDownload.firstCall.args[2]).to.equal('restricted')
   })
 
   it('rejects an unknown service before asking the policy server', async () => {

@@ -30,7 +30,7 @@ import {
 } from '../utils/utils.js'
 import { OceanNodeConfig } from '../../@types/OceanNode.js'
 import { ENVIRONMENT_VARIABLES, JobType } from '../../utils/constants.js'
-import { completeDBComputeJob, dockerImageManifest } from '../data/assets.js'
+import { completeDBComputeJob } from '../data/assets.js'
 import {
   C2DEngine,
   omitDBComputeFieldsFromComputeJob
