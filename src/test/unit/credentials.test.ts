@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { checkCredentials } from '../../utils/credentials.js'
+import { checkCredentials, requiresPolicyServer } from '../../utils/credentials.js'
 import {
   buildEnvOverrideConfig,
   OverrideEnvConfig,
@@ -199,6 +199,42 @@ describe('credentials', () => {
 
     const accessGranted = await checkCredentials('0x123', credentials, signer)
     expect(accessGranted).to.equal(true)
+  })
+
+  describe('requiresPolicyServer', () => {
+    it('returns false without credentials', () => {
+      expect(requiresPolicyServer(undefined)).to.equal(false)
+      expect(requiresPolicyServer({} as Credentials)).to.equal(false)
+    })
+
+    it('returns false for address and access-list rules only', () => {
+      const credentials = {
+        allow: [
+          { type: CREDENTIALS_TYPES.ADDRESS, values: ['0x123', '*'] },
+          {
+            type: CREDENTIALS_TYPES.ACCESS_LIST,
+            chainId: 8996,
+            accessList: '0x456'
+          }
+        ],
+        deny: [{ type: CREDENTIALS_TYPES.ADDRESS, values: ['0x789'] }]
+      } as unknown as Credentials
+
+      expect(requiresPolicyServer(credentials)).to.equal(false)
+    })
+
+    it('returns true for policy-based rules in allow or deny', () => {
+      const inAllow = {
+        allow: [{ type: 'verifiableCredential', requestCredentials: [] }]
+      } as unknown as Credentials
+      expect(requiresPolicyServer(inAllow)).to.equal(true)
+
+      const inDeny = {
+        allow: [{ type: CREDENTIALS_TYPES.ADDRESS, values: ['*'] }],
+        deny: [{ type: 'SSIpolicy', values: [] }]
+      } as unknown as Credentials
+      expect(requiresPolicyServer(inDeny)).to.equal(true)
+    })
   })
 
   after(async () => {

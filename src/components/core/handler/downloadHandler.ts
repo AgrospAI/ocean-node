@@ -15,7 +15,7 @@ import {
 } from '../../../utils/asset.js'
 import { Storage } from '../../storage/index.js'
 import { isPolicyServerConfigured } from '../../../utils/index.js'
-import { checkCredentials } from '../../../utils/credentials.js'
+import { checkCredentials, requiresPolicyServer } from '../../../utils/credentials.js'
 import { CORE_LOGGER } from '../../../utils/logging/common.js'
 import { OceanNode } from '../../../OceanNode.js'
 import { DownloadCommand, DownloadURLCommand } from '../../../@types/commands.js'
@@ -314,14 +314,19 @@ export class DownloadHandler extends CommandHandler {
     // check credentials (DDO level)
     let accessGrantedDDOLevel: boolean
     if (credentials) {
-      // if POLICY_SERVER_URL exists, then ocean-node will NOT perform any checks.
-      // It will just use the existing code and let PolicyServer decide.
+      // Policy-based (SSI) rules are delegated to the policy server, which
+      // needs a verification session. Address and access-list rules are
+      // evaluated here: the policy server has no session for them and would
+      // reject the request.
       CORE_LOGGER.logMessage('Checking DDO level credentials', true)
       CORE_LOGGER.logMessage(
         'isPolicyServerConfigured: ' + isPolicyServerConfigured(),
         true
       )
-      if (isPolicyServerConfigured()) {
+      if (
+        isPolicyServerConfigured() &&
+        requiresPolicyServer(credentials as Credentials)
+      ) {
         const response = await policyServer.checkDownload(
           ddoInstance.getDid(),
           ddo,
@@ -370,7 +375,10 @@ export class DownloadHandler extends CommandHandler {
     // if using a policy server and we are here it means that access was granted (they are merged/assessed together)
     if (service.credentials) {
       let accessGrantedServiceLevel: boolean
-      if (isPolicyServerConfigured()) {
+      if (
+        isPolicyServerConfigured() &&
+        requiresPolicyServer(service.credentials as Credentials)
+      ) {
         // we use the previous check or we do it again
         // (in case there is no DDO level credentials and we only have Service level ones)
         const response = await policyServer.checkDownload(
