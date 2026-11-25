@@ -94,7 +94,7 @@ describe('**********         Should encrypt and decrypt DDO', () => {
           JSON.stringify(mockSupportedNetworks),
           JSON.stringify([8996]),
           JSON.stringify([publisherAddress]),
-          `${homedir}/.ocean/ocean-contracts/artifacts/address.json`
+          `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`
         ]
       )
     )

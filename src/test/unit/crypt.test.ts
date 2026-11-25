@@ -20,7 +20,7 @@ describe('crypt', () => {
       [ENVIRONMENT_VARIABLES.RPCS, ENVIRONMENT_VARIABLES.ADDRESS_FILE],
       [
         '{ "8996":{ "rpc":"http://127.0.0.1:8545", "chainId": 8996, "network": "development", "chunkSize": 100 }}',
-        `${homedir}/.ocean/ocean-contracts/artifacts/address.json`
+        `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`
       ]
     )
     envOverrides = await setupEnvironment(TEST_ENV_CONFIG_FILE, envOverrides)

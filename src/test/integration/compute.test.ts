@@ -205,7 +205,7 @@ describe('**********         Compute', () => {
           JSON.stringify([DEVELOPMENT_CHAIN_ID]),
           '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
           JSON.stringify(['0xe2DD09d719Da89e5a3D0F2549c7E24566e947260']),
-          `${homedir}/.ocean/ocean-contracts/artifacts/address.json`,
+          `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`,
           '[{"socketPath":"/var/run/docker.sock","environments":[{"storageExpiry":604800,"maxJobDuration":3600,"minJobDuration":60,"resources":[{"id":"cpu","total":4,"max":4,"min":1,"type":"cpu"},{"id":"ram","total":10,"max":10,"min":1,"type":"ram"},{"id":"disk","total":10,"max":10,"min":0,"type":"disk"}],"fees":{"' +
             DEVELOPMENT_CHAIN_ID +
             '":[{"feeToken":"' +
@@ -2415,28 +2415,38 @@ describe('**********         Compute', () => {
       )
     }).timeout(30000)
 
-    it('should detect platform mismatch for local images', async function () {
-      // Check with mismatched platform (assuming local is linux/amd64 or linux/x86_64)
+    it('should detect platform mismatch for local images when emulation is disabled', async function () {
+      const imageInfo = await docker.getImage(testImage).inspect()
       const mismatchedPlatform = {
-        architecture: 'arm64', // Different architecture
-        os: 'linux'
+        architecture: imageInfo.Architecture === 'arm64' ? 'amd64' : 'arm64',
+        os: imageInfo.Os || 'linux'
       }
-      const resultMismatch = await dockerEngine.checkDockerImage(
-        testImage,
-        undefined,
-        mismatchedPlatform
-      )
+      const { connection } = dockerEngine.getC2DConfig()
+      const { emulation: previousEmulation } = connection
+      connection.emulation = { enabled: false }
+      try {
+        const resultMismatch = await dockerEngine.checkDockerImage(
+          testImage,
+          undefined,
+          mismatchedPlatform
+        )
 
-      assert(resultMismatch, 'Result should exist')
-      assert(
-        resultMismatch.valid === false,
-        'Image should be invalid with mismatched platform'
-      )
-      assert(resultMismatch.status === 400, 'Status should be 400 for platform mismatch')
-      assert(
-        resultMismatch.reason.includes('Platform mismatch'),
-        'Reason should include platform mismatch message'
-      )
+        assert(resultMismatch, 'Result should exist')
+        assert(
+          resultMismatch.valid === false,
+          'Image should be invalid with mismatched platform and emulation disabled'
+        )
+        assert(
+          resultMismatch.status === 400,
+          'Status should be 400 for platform mismatch'
+        )
+        assert(
+          resultMismatch.reason.includes('Platform mismatch'),
+          'Reason should include platform mismatch message'
+        )
+      } finally {
+        connection.emulation = previousEmulation
+      }
     }).timeout(30000)
 
     it('should fall back to remote registry when local image not found', async function () {
@@ -3599,7 +3609,7 @@ describe('**********         Compute Access Restrictions', () => {
             JSON.stringify([DEVELOPMENT_CHAIN_ID]),
             '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
             JSON.stringify(['0xe2DD09d719Da89e5a3D0F2549c7E24566e947260']),
-            `${homedir}/.ocean/ocean-contracts/artifacts/address.json`,
+            `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`,
             '[{"socketPath":"/var/run/docker.sock","environments":[{"storageExpiry":604800,"maxJobDuration":3600,"minJobDuration":60,"resources":[{"id":"cpu","total":4,"max":4,"min":1,"type":"cpu"},{"id":"ram","total":10,"max":10,"min":1,"type":"ram"},{"id":"disk","total":10,"max":10,"min":0,"type":"disk"}],"access":{"addresses":["' +
               allowedAddress +
               '"],"accessLists":[]},"fees":{"' +
@@ -3757,7 +3767,7 @@ describe('**********         Compute Access Restrictions', () => {
             JSON.stringify([DEVELOPMENT_CHAIN_ID]),
             '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
             JSON.stringify(['0xe2DD09d719Da89e5a3D0F2549c7E24566e947260']),
-            `${homedir}/.ocean/ocean-contracts/artifacts/address.json`,
+            `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`,
             JSON.stringify([
               {
                 socketPath: '/var/run/docker.sock',
@@ -3922,7 +3932,7 @@ describe('**********         Compute Access Restrictions', () => {
             JSON.stringify(mockSupportedNetworks),
             JSON.stringify([DEVELOPMENT_CHAIN_ID]),
             '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
-            `${homedir}/.ocean/ocean-contracts/artifacts/address.json`,
+            `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`,
             '[{"socketPath":"/var/run/docker.sock","paymentClaimInterval":60,"environments":[{"storageExpiry":604800,"maxJobDuration":3600,"minJobDuration":60,"resources":[{"id":"cpu","total":4,"max":4,"min":1,"type":"cpu"},{"id":"ram","total":10,"max":10,"min":1,"type":"ram"},{"id":"disk","total":10,"max":10,"min":0,"type":"disk"}],"fees":{"' +
               DEVELOPMENT_CHAIN_ID +
               '":[{"feeToken":"' +

@@ -55,6 +55,8 @@ describe('Indexer stores Escrow contract events', () => {
   let depositTxHash: string
   let authTxHash: string
   let lockTxHash: string
+  let authorizedAmount: bigint
+  let authorizedLockCounts: bigint
 
   const mockSupportedNetworks: RPCS = getMockSupportedNetworks()
   let previousConfiguration: OverrideEnvConfig[]
@@ -84,7 +86,7 @@ describe('Indexer stores Escrow contract events', () => {
           JSON.stringify(mockSupportedNetworks),
           JSON.stringify([DEVELOPMENT_CHAIN_ID]),
           '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
-          `${homedir}/.ocean/ocean-contracts/artifacts/address.json`
+          `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`
         ]
       )
     )
@@ -179,12 +181,21 @@ describe('Indexer stores Escrow contract events', () => {
     if (!escrowAddress || !paymentToken) this.skip()
     this.timeout(DEFAULT_TEST_TIMEOUT * 3)
 
+    // Earlier compute suites can leave payer-funded locks against this same payee.
+    // Give this suite fresh headroom without lowering the ceiling below those live locks.
+    const [authorization] = await escrowContract.getAuthorizations(
+      paymentToken,
+      payerAddress,
+      payeeAddress
+    )
+    authorizedAmount = BigInt(authorization?.currentLockedAmount ?? 0n) + depositAmount
+    authorizedLockCounts = BigInt(authorization?.currentLocks ?? 0n) + 10n
     const tx = await escrowContract.authorize(
       paymentToken,
       payeeAddress,
-      depositAmount,
+      authorizedAmount,
       expiry,
-      10,
+      authorizedLockCounts,
       0 // expiryTimestamp: 0 = indefinite (Escrow v2)
     )
     const receipt = await tx.wait()
@@ -199,8 +210,8 @@ describe('Indexer stores Escrow contract events', () => {
     expect(event.payer).to.equal(payerAddress.toLowerCase())
     expect(event.payee).to.equal(payeeAddress.toLowerCase())
     expect(event.token).to.equal(paymentToken.toLowerCase())
-    expect(event.maxLockedAmount).to.equal(depositAmount.toString())
-    expect(event.maxLockCounts).to.equal('10')
+    expect(event.maxLockedAmount).to.equal(authorizedAmount.toString())
+    expect(event.maxLockCounts).to.equal(authorizedLockCounts.toString())
     // Escrow v2: authorize was called with expiryTimestamp 0 (indefinite)
     expect(event.expiryTimestamp).to.equal('0')
   })

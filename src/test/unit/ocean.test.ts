@@ -1,4 +1,5 @@
 import { OceanNode } from '../../OceanNode.js'
+import { OceanNodeConfig } from '../../@types/OceanNode.js'
 import { OceanIndexer } from '../../components/Indexer/index.js'
 import { OceanP2P } from '../../components/P2P/index.js'
 import { KeyManager } from '../../components/KeyManager/index.js'
@@ -18,39 +19,56 @@ import {
 
 let envOverrides: OverrideEnvConfig[]
 
-describe('Status command tests', async () => {
-  // need to do it first
-  envOverrides = buildEnvOverrideConfig(
-    [
-      ENVIRONMENT_VARIABLES.PRIVATE_KEY,
-      ENVIRONMENT_VARIABLES.IPFS_GATEWAY,
-      ENVIRONMENT_VARIABLES.ARWEAVE_GATEWAY,
-      ENVIRONMENT_VARIABLES.RPCS,
-      ENVIRONMENT_VARIABLES.INDEXER_NETWORKS
-    ],
-    [
-      '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
-      'https://ipfs.io/',
-      'https://arweave.net/',
-      '{ "1": "https://rpc.eth.gateway.fm", "137": "https://polygon.meowrpc.com" }',
-      JSON.stringify([1, 137])
-    ]
-  )
-  envOverrides = await setupEnvironment(TEST_ENV_CONFIG_FILE, envOverrides)
-  // because of this
-  const config = await getConfiguration(true)
-  const db = await Database.init(config.dbConfig)
-  const keyManager = new KeyManager(config)
-  const blockchainRegistry = new BlockchainRegistry(keyManager, config)
-  const oceanP2P = new OceanP2P(config, keyManager, db)
-  const oceanIndexer = new OceanIndexer(db, config, blockchainRegistry)
-  const oceanProvider = new OceanProvider(db)
-  const oceanNode = OceanNode.getInstance(config, db, oceanP2P)
+describe('Status command tests', () => {
+  let config: OceanNodeConfig
+  let db: Database
+  let oceanIndexer: OceanIndexer
+  let oceanProvider: OceanProvider
+  let oceanNode: OceanNode
+
+  before(async () => {
+    // need to do it first
+    envOverrides = buildEnvOverrideConfig(
+      [
+        ENVIRONMENT_VARIABLES.PRIVATE_KEY,
+        ENVIRONMENT_VARIABLES.IPFS_GATEWAY,
+        ENVIRONMENT_VARIABLES.ARWEAVE_GATEWAY,
+        ENVIRONMENT_VARIABLES.RPCS,
+        ENVIRONMENT_VARIABLES.INDEXER_NETWORKS
+      ],
+      [
+        '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
+        'https://ipfs.io/',
+        'https://arweave.net/',
+        '{ "1": "https://rpc.eth.gateway.fm", "137": "https://polygon.meowrpc.com" }',
+        JSON.stringify([1, 137])
+      ]
+    )
+    envOverrides = await setupEnvironment(TEST_ENV_CONFIG_FILE, envOverrides)
+    // because of this
+    config = await getConfiguration(true)
+    db = await Database.init(config.dbConfig)
+    const keyManager = new KeyManager(config)
+    const blockchainRegistry = new BlockchainRegistry(keyManager, config)
+    const oceanP2P = new OceanP2P(config, keyManager, db)
+    oceanIndexer = new OceanIndexer(db, config, blockchainRegistry)
+    oceanProvider = new OceanProvider(db)
+    oceanNode = OceanNode.getInstance(
+      config,
+      db,
+      oceanP2P,
+      undefined,
+      undefined,
+      keyManager,
+      blockchainRegistry,
+      true
+    )
+  })
 
   after(async () => {
-    // Restore original local setup / env variables after test
+    await oceanIndexer?.stopAllChainIndexers()
+    await oceanNode?.tearDownAll()
     await tearDownEnvironment(envOverrides)
-    await oceanIndexer.stopAllChainIndexers()
   })
 
   it('Ocean Node instance', () => {

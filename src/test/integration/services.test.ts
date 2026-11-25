@@ -67,6 +67,7 @@ const TEMPLATE_ID = 'nginx-demo'
 const MAX_DURATION = 600 // serviceOnDemand.maxDurationSeconds
 const SERVICE_DURATION = 300 // long-lived service used through tests (d)→(l)
 const EXPIRY_DURATION = 60 // short service for the expiry-cron test
+const SERVICE_NODE_HOST = process.env.TEST_SERVICE_NODE_HOST || 'localhost'
 const PORT_RANGE_START = 39000
 const PORT_RANGE_END = 39500
 
@@ -395,7 +396,9 @@ describe('**********         Service on Demand', () => {
 
     const dockerEnvs =
       '[{"socketPath":"/var/run/docker.sock",' +
-      '"serviceOnDemand":{"enabled":true,"nodeHost":"localhost","hostPortRange":[' +
+      '"serviceOnDemand":{"enabled":true,"nodeHost":' +
+      JSON.stringify(SERVICE_NODE_HOST) +
+      ',"hostPortRange":[' +
       PORT_RANGE_START +
       ',' +
       PORT_RANGE_END +
@@ -596,7 +599,7 @@ describe('**********         Service on Demand', () => {
     endpointUrl = running.endpoints[0].url
     expiresAt = running.expiresAt
     expect(hostPort).to.be.within(PORT_RANGE_START, PORT_RANGE_END)
-    expect(endpointUrl).to.equal(`http://localhost:${hostPort}`)
+    expect(endpointUrl).to.equal(`http://${SERVICE_NODE_HOST}:${hostPort}`)
 
     const res = await httpGetWithRetry(endpointUrl)
     assert(res.status === 200, `expected nginx HTTP 200, got ${res.status}`)

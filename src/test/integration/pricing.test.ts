@@ -77,7 +77,7 @@ describe('**********         Publish pricing scehmas and assert ddo stats - FRE 
           JSON.stringify(mockSupportedNetworks),
           JSON.stringify([8996]),
           '0xc594c6e5def4bab63ac29eed19a134c130388f74f019bc74b8f4389df2837a58',
-          `${homedir}/.ocean/ocean-contracts/artifacts/address.json`
+          `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`
         ]
       )
     )

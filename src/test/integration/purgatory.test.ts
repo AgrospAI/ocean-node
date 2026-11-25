@@ -1,4 +1,6 @@
 import { expect, assert } from 'chai'
+import { createServer, Server } from 'node:http'
+import { AddressInfo } from 'node:net'
 import { Purgatory } from '../../components/Indexer/purgatory.js'
 import {
   OverrideEnvConfig,
@@ -11,8 +13,32 @@ describe('**********         Purgatory test', () => {
   let purgatory: Purgatory
   let previousConfiguration: OverrideEnvConfig[]
   let config: any
+  let server: Server
 
   before(async () => {
+    // Exercise real HTTP parsing with deterministic lists and a fresh instance;
+    // indexer suites may already have created the global singleton with purgatory disabled.
+    server = createServer((req, res) => {
+      const lists = {
+        '/accounts': [
+          { address: '0xAD23fC9D943018C34aC55E8DA29AF700A2Fd0FeB', reason: 'bad actor' }
+        ],
+        '/assets': [
+          {
+            did: 'did:op:5b33dd722bd9e5e291685545203dfcfd914b55d12de0c1f31541d323e581041c',
+            reason: 'mumbai test dataset'
+          }
+        ]
+      }
+      const list = lists[req.url as keyof typeof lists]
+      res.writeHead(list ? 200 : 404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(list ?? []))
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     // override and save configuration (always before calling getConfig())
     previousConfiguration = await setupEnvironment(
       null,
@@ -21,15 +47,12 @@ describe('**********         Purgatory test', () => {
           ENVIRONMENT_VARIABLES.ASSET_PURGATORY_URL,
           ENVIRONMENT_VARIABLES.ACCOUNT_PURGATORY_URL
         ],
-        [
-          'https://raw.githubusercontent.com/oceanprotocol/list-purgatory/main/list-assets.json',
-          'https://raw.githubusercontent.com/oceanprotocol/list-purgatory/main/list-accounts.json'
-        ]
+        [`${baseUrl}/assets`, `${baseUrl}/accounts`]
       )
     )
     config = await getConfiguration(true)
 
-    purgatory = await Purgatory.getInstance(config)
+    purgatory = new Purgatory(config.accountPurgatoryUrl, config.assetPurgatoryUrl)
   })
 
   it('instance Purgatory', () => {
@@ -85,6 +108,12 @@ describe('**********         Purgatory test', () => {
   })
 
   after(async () => {
-    await tearDownEnvironment(previousConfiguration)
+    try {
+      await tearDownEnvironment(previousConfiguration)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
   })
 })

@@ -119,7 +119,7 @@ describe('**********         AccessLists tests', () => {
           JSON.stringify([
             await owner.getAddress() // the node
           ]),
-          `${homedir}/.ocean/ocean-contracts/artifacts/address.json`,
+          `${homedir()}/.ocean/ocean-contracts/artifacts/address.json`,
           JSON.stringify(
             EXISTING_ACCESSLISTS.get(
               ENVIRONMENT_VARIABLES.AUTHORIZED_PUBLISHERS_LIST.name
