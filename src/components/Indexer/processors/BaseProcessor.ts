@@ -196,7 +196,6 @@ export abstract class BaseEventProcessor {
   protected async getNFTInfo(
     nftAddress: string,
     signer: Signer,
-    owner: string,
     timestamp: number
   ): Promise<any> {
     const nftContract = new ethers.Contract(nftAddress, ERC721Template.abi, signer)
@@ -208,7 +207,8 @@ export abstract class BaseEventProcessor {
       address: nftAddress,
       name: await nftContract.name(),
       symbol: await nftContract.symbol(),
-      owner,
+      // Metadata event sender may be an authorized contract, not the NFT owner.
+      owner: await nftContract.ownerOf(id),
       created: timestampToDateTime(timestamp),
       tokenURI
     }
@@ -228,11 +228,12 @@ export abstract class BaseEventProcessor {
       }
 
       const saveDDO = await ddoDatabase.update({ ...ddo.getDDOData() })
+      const { nftAddress } = ddo.getDDOFields()
       await ddoState.update(
         this.networkId,
         saveDDO.id,
-        saveDDO.nftAddress,
-        saveDDO.indexedMetadata?.event?.tx,
+        nftAddress,
+        ddo.getAssetFields().indexedMetadata?.event?.txid,
         true
       )
       INDEXER_LOGGER.debug(

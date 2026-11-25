@@ -73,6 +73,11 @@ aquariusRoutes.post(
       const config = req.oceanNode.getConfig()
       const queryStrategy = await DatabaseFactory.createMetadataQuery(config.dbConfig)
       const transformedQuery = queryStrategy.buildQuery(searchQuery)
+      // Preserve hit totals and aggregations for the marketplace's paginated API.
+      // Direct QUERY commands retain their existing grouped-array response.
+      if (config.dbConfig.dbType === 'elasticsearch') {
+        transformedQuery.includeSearchMetadata = true
+      }
 
       const result = await new QueryHandler(req.oceanNode).handle({
         query: transformedQuery,

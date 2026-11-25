@@ -169,8 +169,11 @@ export function validateFilesStructure(
   service: Service,
   decriptedFileObject: any
 ): boolean {
+  const { nftAddress } = DDOManager.getDDOClass(ddo).getDDOFields()
   if (
-    decriptedFileObject.nftAddress?.toLowerCase() !== ddo.nftAddress?.toLowerCase() ||
+    !nftAddress ||
+    !service.datatokenAddress ||
+    decriptedFileObject.nftAddress?.toLowerCase() !== nftAddress.toLowerCase() ||
     decriptedFileObject.datatokenAddress?.toLowerCase() !==
       service.datatokenAddress?.toLowerCase()
   ) {
@@ -406,7 +409,7 @@ export class DownloadHandler extends CommandHandler {
           }
         }
       }
-      const environments = await c2dEngines.fetchEnvironments(ddo.chainId)
+      const environments = await c2dEngines.fetchEnvironments(ddoChainId)
       for (const env of environments)
         computeAddrs.push(env.consumerAddress?.toLowerCase())
 
@@ -445,7 +448,7 @@ export class DownloadHandler extends CommandHandler {
       task.transferTxId,
       task.consumerAddress,
       provider,
-      ddo.nftAddress,
+      nftAddress,
       service.datatokenAddress,
       serviceIndex,
       service.timeout,
@@ -472,13 +475,13 @@ export class DownloadHandler extends CommandHandler {
       let decriptedFileObject: any = null
       let decryptedFileData: any = null
       // check if confidential EVM
-      const confidentialEVM = isConfidentialChainDDO(BigInt(ddo.chainId), service)
+      const confidentialEVM = isConfidentialChainDDO(BigInt(ddoChainId), service)
       // check that files is missing and template 4 is active on the chain
       if (confidentialEVM) {
         const signer = await blockchain.getSigner()
         const isTemplate4 = await isDataTokenTemplate4(service.datatokenAddress, signer)
 
-        if (!isTemplate4 || !(await isERC20Template4Active(ddo.chainId, signer))) {
+        if (!isTemplate4 || !(await isERC20Template4Active(ddoChainId, signer))) {
           const errorMsg =
             'Cannot decrypt DDO files, Template 4 is not active for confidential EVM!'
           CORE_LOGGER.debug(errorMsg)

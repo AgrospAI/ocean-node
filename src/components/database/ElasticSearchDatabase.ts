@@ -607,7 +607,11 @@ export class ElasticsearchDdoDatabase extends AbstractDdoDatabase {
   }
 
   async search(query: Record<string, any>): Promise<any> {
+    const { includeSearchMetadata, ...searchQuery } = query
+    query = searchQuery
     const results = []
+    let totalResults = 0
+    let aggregations: unknown
     const maxPerPage = query.size || 100
     const from = (query.from || 1) * maxPerPage - maxPerPage
 
@@ -618,10 +622,16 @@ export class ElasticsearchDdoDatabase extends AbstractDdoDatabase {
           index,
           body: {
             ...queryWithoutIndex,
+            ...(includeSearchMetadata ? { track_total_hits: true } : {}),
             from,
             size: maxPerPage
           }
         })
+        totalResults +=
+          typeof response.hits.total === 'number'
+            ? response.hits.total
+            : response.hits.total?.value || 0
+        aggregations = response.aggregations
         if (response.hits?.hits.length > 0) {
           const nomalizedResponse = response.hits.hits.map((hit: any) => {
             return normalizeDocumentId(hit._source, hit._id)
@@ -639,10 +649,15 @@ export class ElasticsearchDdoDatabase extends AbstractDdoDatabase {
             index: schema.index,
             body: {
               ...query,
+              ...(includeSearchMetadata ? { track_total_hits: true } : {}),
               from,
               size: maxPerPage
             }
           })
+          totalResults +=
+            typeof response.hits.total === 'number'
+              ? response.hits.total
+              : response.hits.total?.value || 0
           if (response.hits?.hits.length > 0) {
             const nomalizedResponse = response.hits.hits.map((hit: any) => {
               return normalizeDocumentId(hit._source, hit._id)
@@ -657,7 +672,9 @@ export class ElasticsearchDdoDatabase extends AbstractDdoDatabase {
       }
     }
 
-    return results
+    return includeSearchMetadata
+      ? { results: results.flat(), totalResults, aggregations }
+      : results
   }
 
   async create(ddo: Record<string, any>): Promise<any> {

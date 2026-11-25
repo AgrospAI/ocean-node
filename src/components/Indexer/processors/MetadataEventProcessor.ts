@@ -56,7 +56,7 @@ export class MetadataEventProcessor extends BaseEventProcessor {
       const metadata = decodedEventData.args[4]
       const metadataHash = decodedEventData.args[5]
       const flag = decodedEventData.args[3]
-      const owner = decodedEventData.args[0]
+      const eventCreator = decodedEventData.args[0]
 
       const dataNftAddress = ethers.getAddress(event.address)
 
@@ -106,10 +106,14 @@ export class MetadataEventProcessor extends BaseEventProcessor {
         return savedDDO
       }
 
+      // MetadataCreated/Updated.args[0] is msg.sender (possibly a registry).
+      // Ownership and publisher policy checks must use the ERC721 owner.
+      const owner = await templateContract.ownerOf(await templateContract.getId())
+
       const ddo = await this.decryptDDO(
         decodedEventData.args[2],
         flag,
-        owner,
+        eventCreator,
         event.address,
         chainId,
         event.transactionHash,
@@ -258,13 +262,9 @@ export class MetadataEventProcessor extends BaseEventProcessor {
         }
       }
 
-      if (eventName === EVENTS.METADATA_UPDATED) {
-        if (!previousDdoInstance) {
-          INDEXER_LOGGER.debug(
-            `Previous DDO with did ${ddoInstance.getDid()} was not found the database`
-          )
-          return
-        }
+      // An update contains the complete DDO, so it can recover a publication whose
+      // original metadata could not be indexed (or a newly started metadata cache).
+      if (eventName === EVENTS.METADATA_UPDATED && previousDdoInstance) {
         const [isUpdateable, error] = this.isUpdateable(
           previousDdoInstance,
           event.transactionHash,
@@ -295,7 +295,6 @@ export class MetadataEventProcessor extends BaseEventProcessor {
         const nft = await this.getNFTInfo(
           ddoWithPricing.getDDOFields().nftAddress,
           signer,
-          owner,
           parseInt(decodedEventData.args[6])
         )
 
@@ -328,7 +327,7 @@ export class MetadataEventProcessor extends BaseEventProcessor {
         // policyServer check
         const policyServer = new PolicyServer()
         let policyStatus
-        if (eventName === EVENTS.METADATA_UPDATED)
+        if (eventName === EVENTS.METADATA_UPDATED && previousDdoInstance)
           policyStatus = await policyServer.checkUpdateDDO(
             ddoWithPricing.getDDOData() as DDO,
             this.networkId,
@@ -363,7 +362,7 @@ export class MetadataEventProcessor extends BaseEventProcessor {
       // if purgatory is disabled just return false
       const updatedDDO = await this.updatePurgatoryStateDdo(
         ddoUpdatedWithPricing,
-        from,
+        owner,
         purgatory
       )
       if (updatedDDO.getAssetFields().indexedMetadata.purgatory.state === false) {

@@ -1,3 +1,4 @@
+import { CloneServiceFilesHandler } from './cloneServiceFiles.js'
 import {
   PROTOCOL_COMMANDS,
   SUPPORTED_PROTOCOL_COMMANDS
@@ -120,6 +121,10 @@ export class CoreHandlersRegistry {
     this.registerCoreHandler(PROTOCOL_COMMANDS.DECRYPT_DDO, new DecryptDdoHandler(node))
     this.registerCoreHandler(PROTOCOL_COMMANDS.NONCE, new NonceHandler(node))
     this.registerCoreHandler(PROTOCOL_COMMANDS.ENCRYPT, new EncryptHandler(node))
+    this.registerCoreHandler(
+      PROTOCOL_COMMANDS.CLONE_SERVICE_FILES,
+      new CloneServiceFilesHandler(node)
+    )
     this.registerCoreHandler(PROTOCOL_COMMANDS.ENCRYPT_FILE, new EncryptFileHandler(node))
     this.registerCoreHandler(PROTOCOL_COMMANDS.GET_DDO, new GetDdoHandler(node))
     this.registerCoreHandler(PROTOCOL_COMMANDS.QUERY, new QueryHandler(node))
