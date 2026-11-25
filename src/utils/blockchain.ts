@@ -24,12 +24,17 @@ export class Blockchain {
   private knownRPCs: string[] = []
   private primaryRpcTimeout: number
   private fallbackRpcTimeout: number
+  private providerCacheOptions: { cacheTimeout?: number }
 
   /**
    * Creates a new Blockchain instance utilizing KeyManager and a SupportedNetwork configuration
    */
   public constructor(keyManager: KeyManager, network: SupportedNetwork) {
     this.chainId = network.chainId || 0
+    // Instamined development chains can confirm consecutive transactions within ethers'
+    // default 250ms RPC cache window. A cached pending nonce would reuse the prior nonce.
+    this.providerCacheOptions =
+      network.network === 'development' ? { cacheTimeout: -1 } : {}
     this.keyManager = keyManager
     this.knownRPCs.push(network.rpc)
     if (network.fallbackRPCs && network.fallbackRPCs.length > 0) {
@@ -80,7 +85,8 @@ export class Blockchain {
       for (let i = 0; i < this.knownRPCs.length; i++) {
         const rpc = this.knownRPCs[i]
         const rpcProvider = new JsonRpcProvider(rpc, this.chainId, {
-          staticNetwork: true
+          staticNetwork: true,
+          ...this.providerCacheOptions
         })
         configs.push({
           provider: rpcProvider,
@@ -91,7 +97,10 @@ export class Blockchain {
       // quorum=1: accept the first response to avoid calls to all configured rpcs
       this.provider =
         configs.length > 0
-          ? new FallbackProvider(configs, this.chainId, { quorum: 1 })
+          ? new FallbackProvider(configs, this.chainId, {
+              quorum: 1,
+              ...this.providerCacheOptions
+            })
           : new FallbackProvider([])
     }
     return this.provider
