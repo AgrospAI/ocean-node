@@ -1236,3 +1236,26 @@ GPU1: 10  × 1 × 10 = 100
 ```
 
 For all env vars and config options, see [env.md](env.md).
+
+### Registry manifest failures with private DNS
+
+`Initialize Compute failed ... :Image manifest could not be retrieved` can mean
+the registry hostname resolves to a private address inside the node's network.
+Check DNS from the node container: a successful pull from a developer's laptop
+does not exercise the same DNS or the node's outbound URL guard. Free compute
+can report this same failure as `Cannot find image ... for x86_64`, even when
+the image supports that architecture.
+
+For a trusted internal registry, set `ALLOWED_PRIVATE_URL_RANGES` to a JSON array
+containing only its required IPs, for example `["192.168.35.17/32"]`, then restart
+the node. This exception applies to all guarded outbound URLs, not only registry
+requests. Keep the ranges narrow. The registry's authentication endpoint must
+also resolve to an allowed address. See [env.md](env.md) for the complete policy.
+
+### Preserve results across pod replacements
+
+Mount `c2d_storage` on persistent storage in Kubernetes. An `emptyDir` loses job
+inputs, logs and outputs whenever the pod is replaced, even if the SQLite job
+database survives on a separate PVC. Preserve both directories and copy existing
+compute files before changing the mount. Size the compute volume for the
+configured disk pool and retained results (`storageExpiry`).
