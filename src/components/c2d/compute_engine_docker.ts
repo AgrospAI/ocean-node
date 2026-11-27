@@ -2263,6 +2263,9 @@ export class C2DEngineDocker extends C2DEngine {
     // don't set the cron if we don't have compute environments
     if (this.envs.length > 0)
       this.cronTimer = setTimeout(() => {
+        // The timer has fired even if InternalLoop skips this tick because another
+        // pass is still running. Do not leave a spent timer blocking rescheduling.
+        this.cronTimer = null
         // track the running pass so stop() can drain it
         this.internalLoopPromise = this.InternalLoop()
       }, this.cronTime)
